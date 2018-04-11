@@ -14,7 +14,7 @@ int timeDelay;
 int waterSensor;
 //initialize
 void setup() {
-  //Serial.begin(9600);
+  Serial.begin(9600);
   pinMode(SOLENOID, OUTPUT) ;           //Sets the pin as an output
   Time.zone(-4);
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
@@ -32,17 +32,18 @@ void setup() {
 //begin loop
 void loop() {
   waterSensor = analogRead(WATER_SENSOR);
-  //Serial.println(waterSensor);
-  if (waterSensor > 1000 && !tankFull && fill) {
+  Serial.println(waterSensor);
+  if (waterSensor > 400 && !tankFull && fill) {
     tankFull = true;
-    cups = 12;
+    cups = 12; //max water reservoir capacity
   }
-  else if (waterSensor < 1000 || tankFull) {
+  else {
     if (!tankFull && fill && statusPercent < 101 ) {
       //digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
       showMsg(0, 2, "Pouring");
       showMsg(16, 2, String(cups) + " Cups...");
       statusBar(statusPercent);
+      // idea, calibrate at longest fill, then increase percent increment for smaller fills based on cups
       statusPercent += 5;
       delay(timeDelay);
     }
@@ -59,9 +60,9 @@ void loop() {
     }
   }
   delay(100);
-}
+} // end loop
 
-//local functions camelcase
+// local functions camelcase
 void showMsg(int position, int font, String message) {
   display.setTextSize(font);   // 1 = 8 pixel tall, 2 = 16 pixel tall...
   display.setTextColor(WHITE);
@@ -88,6 +89,7 @@ void resetVariables() {
 }
 //cloud functions pascalcase
 int Stop(String message) {
+  //digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
   resetVariables();
   clearScreen();
   showMsg(0, 3, "ERROR:");
@@ -97,10 +99,13 @@ int Stop(String message) {
   clearScreen();
 }
 int FillTwoCups(String message) {
-  clearScreen();
-  fill = true;
-  cups = 2;
-  timeDelay = 0;
+  //idea have alexa set cups, create delay based on cups
+  if (!fill) {
+    clearScreen();
+    fill = true;
+    cups = 2;
+    timeDelay = 0;
+  }
 }
 int FillFourCups(String message) {
   clearScreen();
