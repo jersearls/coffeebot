@@ -1,54 +1,56 @@
 #include "Adafruit_SSD1306.h"
 #define OLED_I2C_ADDRESS 0x3C
 #define OLED_RESET D4
-#define SOLENOID 0
+#define SOLENOID 3
 #define WATER_SENSOR A0
 Adafruit_SSD1306 display(OLED_RESET);
 
 // declare global variables
 volatile bool fill = false;
 volatile bool tankFull = false;
-int statusPercent;
+float statusPercent;
 int cups;
 int timeDelay;
 int waterSensor;
 //initialize
 void setup() {
-  Serial.begin(9600);
+  //Serial.begin(9600);
   pinMode(SOLENOID, OUTPUT) ;           //Sets the pin as an output
   Time.zone(-4);
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
   clearScreen();
   //cloud functions
   Particle.function("Stop", Stop);
-  Particle.function("TwoCups", FillTwoCups);
-  Particle.function("FourCups", FillFourCups);
-  Particle.function("SixCups", FillSixCups);
-  Particle.function("EightCups", FillEightCups);
-  Particle.function("TenCups", FillTenCups);
-  Particle.function("TwelveCups", FillTwelveCups);
+  Particle.function("FillWater", FillWater);
 }
 
 //begin loop
 void loop() {
   waterSensor = analogRead(WATER_SENSOR);
-  Serial.println(waterSensor);
+  //Serial.println(waterSensor);
   if (waterSensor > 400 && !tankFull && fill) {
+    digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
     tankFull = true;
     cups = 12; //max water reservoir capacity
+    clearScreen();
+    showMsg(0, 3, "ERROR:");
+    showMsg(30, 2, "Water Tank");
+    showMsg(48, 2, "is Full");
+    delay(3000);
   }
   else {
     if (!tankFull && fill && statusPercent < 101 ) {
-      //digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
+      digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
       showMsg(0, 2, "Pouring");
       showMsg(16, 2, String(cups) + " Cups...");
       statusBar(statusPercent);
       // idea, calibrate at longest fill, then increase percent increment for smaller fills based on cups
-      statusPercent += 5;
-      delay(timeDelay);
+      statusPercent += 5 ;
+      timeDelay = 255 * cups ;
+      delay(timeDelay) ; // 400 * cups
     }
     else if (tankFull || statusPercent >= 101) {
-      //digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
+      digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
       clearScreen();
       String fillDate = Time.format(Time.now(), "%m-%d-%y");
       String fillTime = Time.format(Time.now(), "%I:%M %p");
@@ -59,7 +61,6 @@ void loop() {
       resetVariables();
     }
   }
-  delay(100);
 } // end loop
 
 // local functions camelcase
@@ -77,8 +78,8 @@ void statusBar(int n) {
   display.display();
 }
 void clearScreen() {
-  display.clearDisplay();
-  display.display();
+  display.clearDisplay() ;
+  display.display() ;
 }
 void resetVariables() {
   cups = 0;
@@ -89,7 +90,7 @@ void resetVariables() {
 }
 //cloud functions pascalcase
 int Stop(String message) {
-  //digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
+  digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
   resetVariables();
   clearScreen();
   showMsg(0, 3, "ERROR:");
@@ -98,42 +99,11 @@ int Stop(String message) {
   delay(5000);
   clearScreen();
 }
-int FillTwoCups(String message) {
+int FillWater(String message) {
   //idea have alexa set cups, create delay based on cups
   if (!fill) {
-    clearScreen();
-    fill = true;
-    cups = 2;
-    timeDelay = 0;
+    clearScreen() ;
+    cups = message.toInt() ;
+    fill = true ;
   }
-}
-int FillFourCups(String message) {
-  clearScreen();
-  fill = true;
-  cups = 4;
-  timeDelay = 0;
-}
-int FillSixCups(String message) {
-  clearScreen();
-  fill = true;
-  cups = 6;
-  timeDelay = 0;
-}
-int FillEightCups(String message) {
-  clearScreen();
-  fill = true;
-  cups = 8;
-  timeDelay = 0;
-}
-int FillTenCups(String message) {
-  clearScreen();
-  fill = true;
-  cups = 10;
-  timeDelay = 0;
-}
-int FillTwelveCups(String message) {
-  clearScreen();
-  fill = true;
-  cups = 12;
-  timeDelay = 500;
 }
