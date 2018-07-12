@@ -4,10 +4,19 @@
 #define SOLENOID 3
 #define WATER_SENSOR A0
 Adafruit_SSD1306 display(OLED_RESET) ;
+// refactor without byte?
+byte sensorInterrupt = 2 ;  // digital pin 2
+byte sensorPin       = 2 ;
 
 // declare global variables
 volatile bool fill = false ;
 volatile bool tankFull = false ;
+volatile int pulseCount = 0 ;
+float calibrationFactor = 4.5;
+float flowRate = 0.0;
+unsigned int flowMilliLitres = 0 ;
+unsigned long totalMilliLitres = 0 ;
+unsigned long oldTime = 0 ;
 int filledOunces ;
 int waterSensor ;
 int requestedOunces ;
@@ -16,6 +25,9 @@ String requestedCups ;
 //initialize
 void setup() {
   //Serial.begin(9600);
+  pinMode(sensorPin, INPUT);
+  digitalWrite(sensorPin, HIGH);
+  attachInterrupt(sensorInterrupt, pulseCounter, FALLING);
   pinMode(SOLENOID, OUTPUT) ;         //Sets the solenoid pin as an output
   Time.zone(-4);
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
@@ -25,32 +37,35 @@ void setup() {
   Particle.function("FillWater", FillWater);
   Particle.function("ManualFill", ManualFill);
 }
-
-//begin loop
 void loop() {
-  waterSensor = analogRead(WATER_SENSOR);
   //Serial.println(waterSensor);
-  if (waterSensor > 400 && !tankFull && fill) {
-    digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
-    tankFull = true;
-    requestedCups = "12"; //max water reservoir capacity
-    clearScreen();
-    stopMessage("Water Tank", "is Full");
-  }
-  else {
-    if (!tankFull && fill && filledOunces < requestedOunces ) {
-        digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
-        fillingMessage(requestedCups) ;
-        statusBar(filledOunces, requestedOunces);
-    }
-    else if (tankFull || filledOunces >= requestedOunces) {
-      digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-      fillingMessage(requestedCups) ;
-      resetVariables() ;
-    }
-  }
-} // end loop
+  if((millis() - oldTime) > 1000) {
+    waterSensor = analogRead(WATER_SENSOR);
+    detachInterrupt(sensorInterrupt);
+    calculateFlow();
+    attachInterrupt(sensorInterrupt, pulseCounter, FALLING);
 
+    if (waterSensor > 400 && !tankFull && fill) {
+      digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
+      tankFull = true;
+      requestedCups = "12"; //max water reservoir capacity
+      clearScreen();
+      stopMessage("Water Tank", "is Full");
+    }
+    else {
+      if (!tankFull && fill && filledOunces < requestedOunces ) {
+          digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
+          fillingMessage() ;
+          statusBar(filledOunces, requestedOunces);
+      }
+      else if (tankFull || filledOunces >= requestedOunces) {
+        digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
+        filledMessage() ;
+        resetVariables() ;
+      }
+    }
+  }
+}
 //local functions (camelcase)
 //LCD functions
 void showMsg(int position, int font, String message) {
@@ -61,7 +76,7 @@ void showMsg(int position, int font, String message) {
   display.display() ;
 }
 void statusBar(int filledOunces, int requestedOunces) {
-  int percent = (filledOunces / requestedOunces) * 128 ;
+  int percent = ((float)filledOunces / (float)requestedOunces) * 128 ;
   display.drawRect(0, 32, 128, 32, WHITE) ;
   display.fillRect(0, 32, percent, 32, WHITE) ;
   display.display() ;
@@ -77,21 +92,32 @@ void stopMessage(String line1, String line2) {
   showMsg(48, 2, line2) ;
   delay(3000) ;
 }
-void filledMessage(String cups) {
+void filledMessage() {
   clearScreen() ;
   String fillDate = Time.format(Time.now(), "%m-%d-%y") ;
   String fillTime = Time.format(Time.now(), "%I:%M %p") ;
   showMsg(0, 2, "Filled") ;
-  showMsg(20, 2, cups + " Cups") ;
+  showMsg(20, 2, requestedCups + " Cups") ;
   showMsg(40, 1, "Last Filled on:") ;
   showMsg(50, 1, fillDate + " at " + fillTime) ;
 }
-void fillingMessage(String cups) {
+void fillingMessage() {
   showMsg(0, 2, "Pouring");
-  showMsg(16, 2, cups + " Cups...");
+  showMsg(16, 2, requestedCups + " Cups...");
 }
 //flowsensor functions
-
+void pulseCounter()
+{
+  pulseCount++ ;
+}
+void calculateFlow() {
+  flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / calibrationFactor;
+  oldTime = millis();
+  flowMilliLitres = (flowRate / 60) * 1000 ;
+  totalMilliLitres += flowMilliLitres ;
+  filledOunces = totalMilliLitres * 0.033814 ;
+  pulseCount = 0 ;
+}
 //control flow functions
 void resetVariables() {
   requestedOunces = 0 ;
@@ -99,7 +125,6 @@ void resetVariables() {
   fill = false ;
   tankFull = false ;
 }
-
 //cloud functions (pascalcase)
 int Stop(String message) {
   digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
