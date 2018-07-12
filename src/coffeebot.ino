@@ -3,14 +3,15 @@
 #define OLED_RESET D4
 #define SOLENOID 3
 #define WATER_SENSOR A0
-Adafruit_SSD1306 display(OLED_RESET);
+Adafruit_SSD1306 display(OLED_RESET) ;
 
 // declare global variables
-volatile bool fill = false;
-volatile bool tankFull = false;
-int statusPercent;
-int cups;
-int waterSensor;
+volatile bool fill = false ;
+volatile bool tankFull = false ;
+int filledOunces ;
+int waterSensor ;
+int requestedOunces ;
+String requestedCups ;
 
 //initialize
 void setup() {
@@ -32,51 +33,28 @@ void loop() {
   if (waterSensor > 400 && !tankFull && fill) {
     digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
     tankFull = true;
-    cups = 12;    //max water reservoir capacity
+    requestedCups = "12";    //max water reservoir capacity
     clearScreen();
-    showMsg(0, 3, "ERROR:");
-    showMsg(30, 2, "Water Tank");
-    showMsg(48, 2, "is Full");
-    delay(3000);
+    stopMessage("Water Tank", "is Full");
   }
   else {
-    if (!tankFull && fill && statusPercent < 101 ) {
+    if (!tankFull && fill && filledOunces < requestedOunces ) {
       digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
-      showMsg(0, 2, "Pouring");
-      showMsg(16, 2, String(cups) + " Cups...");
+      pouringMessage(requestedCups)
       statusBar(statusPercent);
       statusPercent += 5 ;
-      if (cups == 4) {
-        delay(335);   //greater delay, more volume
-      }
-      else if (cups == 6) {
-        delay(620);
-      }
-      else if (cups == 8) {
-        delay(1000);
-      }
-      else if (cups == 10) {
-        delay(1300);
-      }
-      else if (cups == 12) {
-        delay(1655);
       }
     }
-    else if (tankFull || statusPercent >= 101) {
+    else if (tankFull || filledOunces >= requestedOunces) {
       digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-      clearScreen();
-      String fillDate = Time.format(Time.now(), "%m-%d-%y");
-      String fillTime = Time.format(Time.now(), "%I:%M %p");
-      showMsg(0, 2, "Filled");
-      showMsg(20, 2, String(cups) + " Cups");
-      showMsg(40, 1, "Last Filled on:");
-      showMsg(50, 1, fillDate + " at " + fillTime);
-      resetVariables();
+      fillMessage(requestedCups) ;
+      resetVariables() ;
     }
   }
 } // end loop
 
-// local functions camelcase
+//local functions (camelcase)
+//LCD functions
 void showMsg(int position, int font, String message) {
   display.setTextSize(font);   // 1 = 8 pixel tall, 2 = 16 pixel tall...
   display.setTextColor(WHITE);
@@ -94,6 +72,33 @@ void clearScreen() {
   display.clearDisplay() ;
   display.display() ;
 }
+void stopMessage() {
+  clearScreen();
+  showMsg(0, 3, "ERROR:");
+  showMsg(30, 2, line1);
+  showMsg(48, 2, line2);
+  delay(3000);
+}
+void filledMessage(String cups) {
+  clearScreen();
+  String fillDate = Time.format(Time.now(), "%m-%d-%y");
+  String fillTime = Time.format(Time.now(), "%I:%M %p");
+  showMsg(0, 2, "Filled");
+  showMsg(20, 2, cups + " Cups");
+  showMsg(40, 1, "Last Filled on:");
+  showMsg(50, 1, fillDate + " at " + fillTime);
+}
+void pouringMessage(String cups) {
+  showMsg(0, 2, "Pouring");
+  showMsg(16, 2, cups + " Cups...");
+}
+//flowsensor functions
+void cupsToOunces(String cups) {
+  intCup = cups.toInt();
+  ounces = intCup * 5;
+  return ounces;
+}
+//control flow functions
 void resetVariables() {
   cups = 0;
   statusPercent = 0;
@@ -101,21 +106,18 @@ void resetVariables() {
   tankFull = false;
 }
 
-//cloud functions pascalcase
+//cloud functions (pascalcase)
 int Stop(String message) {
   digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
   resetVariables();
-  clearScreen();
-  showMsg(0, 3, "ERROR:");
-  showMsg(30, 2, "Emergency");
-  showMsg(48, 2, "Stop!");
-  delay(5000);
+  stopMessage("Emergency", "Stop!");
   clearScreen();
 }
 int FillWater(String message) {
   if (!fill) {
     clearScreen() ;
-    cups = message.toInt() ;
+    requestedCups = message ;
+    requestedOunces = cupsToOunces(message)
     fill = true ;
   }
 }
