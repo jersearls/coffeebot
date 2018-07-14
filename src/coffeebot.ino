@@ -8,15 +8,16 @@ Adafruit_SSD1306 display(OLED_RESET) ;
 byte sensorInterrupt = 2 ;  // digital pin 2
 byte sensorPin       = 2 ;
 
-// declare global variables
-volatile bool fill = false ;
-volatile bool tankFull = false ;
-volatile int pulseCount = 0 ;
-float calibrationFactor = 4.5;
-float flowRate = 0.0;
-unsigned int flowMilliLitres = 0 ;
-unsigned long totalMilliLitres = 0 ;
-unsigned long oldTime = 0 ;
+// declare variables
+//volatile only if value can be changed by something beyond the control of the code section in which it appears
+bool fill = false ;
+bool tankFull = false ;
+float calibrationFactor = 4.5 ;
+float flowRate ;
+long totalMilliLitres ;
+long timeOfLastFlowReading ;
+volatile int pulseCount ;
+int flowMilliLitres ;
 int filledOunces ;
 int waterSensor ;
 int requestedOunces ;
@@ -24,45 +25,41 @@ String requestedCups ;
 
 //initialize
 void setup() {
-  //Serial.begin(9600);
-  pinMode(sensorPin, INPUT);
-  digitalWrite(sensorPin, HIGH);
-  attachInterrupt(sensorInterrupt, pulseCounter, FALLING);
+  //Serial.begin(9600) ;
+  pinMode(sensorPin, INPUT) ;
+  digitalWrite(sensorPin, HIGH) ;
+  attachInterrupt(sensorInterrupt, pulseCounter, FALLING) ;
   pinMode(SOLENOID, OUTPUT) ;         //Sets the solenoid pin as an output
-  Time.zone(-4);
-  display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
+  Time.zone(-4) ;
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS) ;
   clearScreen(); //necessary?
   //cloud functions
-  Particle.function("Stop", Stop);
-  Particle.function("FillWater", FillWater);
-  Particle.function("ManualFill", ManualFill);
+  Particle.function("Stop", Stop) ;
+  Particle.function("FillWater", FillWater) ;
+  Particle.function("ManualFill", ManualFill) ;
 }
 void loop() {
   //Serial.println(waterSensor);
-  if((millis() - oldTime) > 1000) {
-    waterSensor = analogRead(WATER_SENSOR);
-    detachInterrupt(sensorInterrupt);
-    calculateFlow();
-    attachInterrupt(sensorInterrupt, pulseCounter, FALLING);
-
+  if((millis() - timeOfLastFlowReading) > 1000) {
+    waterSensor = analogRead(WATER_SENSOR) ;
+    detachInterrupt(sensorInterrupt) ;
+    calculateFlow() ;
+    attachInterrupt(sensorInterrupt, pulseCounter, FALLING) ;
     if (waterSensor > 400 && !tankFull && fill) {
       digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
-      tankFull = true;
-      requestedCups = "12"; //max water reservoir capacity
-      clearScreen();
-      stopMessage("Water Tank", "is Full");
+      tankFull = true ;
+      requestedCups = "12" ; //max water reservoir capacity
+      stopMessage("Water Tank", "is Full") ;
     }
-    else {
-      if (!tankFull && fill && filledOunces < requestedOunces ) {
-          digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
-          fillingMessage() ;
-          statusBar(filledOunces, requestedOunces);
-      }
-      else if (tankFull || filledOunces >= requestedOunces) {
-        digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-        filledMessage() ;
-        resetVariables() ;
-      }
+    else if (!tankFull && fill && filledOunces < requestedOunces ) {
+      digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
+      fillingMessage() ;
+      statusBar(filledOunces, requestedOunces);
+    }
+    else (tankFull || filledOunces >= requestedOunces) {
+      digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
+      filledMessage() ;
+      resetVariables() ;
     }
   }
 }
@@ -111,8 +108,8 @@ void pulseCounter()
   pulseCount++ ;
 }
 void calculateFlow() {
-  flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / calibrationFactor;
-  oldTime = millis();
+  flowRate = ((1000.0 / (millis() - timeOfLastFlowReading)) * pulseCount) / calibrationFactor;
+  timeOfLastFlowReading = millis();
   flowMilliLitres = (flowRate / 60) * 1000 ;
   totalMilliLitres += flowMilliLitres ;
   filledOunces = totalMilliLitres * 0.033814 ;
@@ -128,15 +125,15 @@ void resetVariables() {
 //cloud functions (pascalcase)
 int Stop(String message) {
   digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-  resetVariables();
-  stopMessage("Emergency", "Stop!");
-  clearScreen();
+  resetVariables() ;
+  stopMessage("Emergency", "Stop!") ;
+  clearScreen() ;
 }
 int FillWater(String message) {
   if (!fill) {
     clearScreen() ;
     requestedCups = message ;
-    requestedOunces = message.toInt() * 5;
+    requestedOunces = message.toInt() * 5 ;
     fill = true ;
   }
 }
