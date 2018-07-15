@@ -5,46 +5,50 @@
 #define WATER_SENSOR A0
 Adafruit_SSD1306 display(OLED_RESET) ;
 // refactor without byte?
-byte sensorInterrupt = 2 ;  // digital pin 2
-byte sensorPin       = 2 ;
+byte SENSOR_INTERRUPT = 4 ;  // digital pin 2
+byte SENSOR_PIN       = 4 ;
 
 // declare variables
-//volatile only if value can be changed by something beyond the control of the code section in which it appears
 bool fill = false ;
 bool tankFull = false ;
-float calibrationFactor = 4.5 ;
+bool debugMode = false ;
+double calibrationFactor = 31 ;
 float flowRate ;
-long totalMilliLitres ;
-long timeOfLastFlowReading ;
+float flowRateOunces;
+float filledOunces ;
+double requestedOunces = 0.01 ;
+long lastFlowReadingTimestamp ;
 volatile int pulseCount ;
-int flowMilliLitres ;
-int filledOunces ;
 int waterSensor ;
-int requestedOunces ;
 String requestedCups ;
 
 //initialize
 void setup() {
   //Serial.begin(9600) ;
-  pinMode(sensorPin, INPUT) ;
-  digitalWrite(sensorPin, HIGH) ;
-  attachInterrupt(sensorInterrupt, pulseCounter, FALLING) ;
-  pinMode(SOLENOID, OUTPUT) ;         //Sets the solenoid pin as an output
+  pinMode(SENSOR_PIN, INPUT) ;
+  pinMode(SOLENOID, OUTPUT) ;
+  digitalWrite(SENSOR_PIN, HIGH) ;
+  attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING) ;
   Time.zone(-4) ;
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS) ;
   clearScreen(); //necessary?
   //cloud functions
+  Particle.function("Calibrate", Calibrate) ;
   Particle.function("Stop", Stop) ;
   Particle.function("FillWater", FillWater) ;
   Particle.function("ManualFill", ManualFill) ;
+  Particle.function("ToggleDebugMode", ToggleDebugMode) ;
+  //cloud variables
+  Particle.variable("calibrationFactor", calibrationFactor) ;
+  Particle.variable("waterSensor", waterSensor) ;
 }
 void loop() {
   //Serial.println(waterSensor);
-  if((millis() - timeOfLastFlowReading) > 1000) {
+  if((millis() - lastFlowReadingTimestamp) > 1000) {
     waterSensor = analogRead(WATER_SENSOR) ;
-    detachInterrupt(sensorInterrupt) ;
+    detachInterrupt(SENSOR_INTERRUPT) ;
     calculateFlow() ;
-    attachInterrupt(sensorInterrupt, pulseCounter, FALLING) ;
+    attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING) ;
     if (waterSensor > 400 && !tankFull && fill) {
       digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
       tankFull = true ;
@@ -53,12 +57,19 @@ void loop() {
     }
     else if (!tankFull && fill && filledOunces < requestedOunces ) {
       digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
-      fillingMessage() ;
-      statusBar(filledOunces, requestedOunces);
+      if (debugMode) {
+        debugMessage() ;
+      }
+      else {
+        fillingMessage() ;
+        statusBar(filledOunces, requestedOunces) ;
+      }
     }
-    else (tankFull || filledOunces >= requestedOunces) {
+    else if (tankFull || filledOunces >= requestedOunces) {
       digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-      filledMessage() ;
+      if (!debugMode) {
+        filledMessage() ;
+      }
       resetVariables() ;
     }
   }
@@ -72,8 +83,8 @@ void showMsg(int position, int font, String message) {
   display.println(message) ;
   display.display() ;
 }
-void statusBar(int filledOunces, int requestedOunces) {
-  int percent = ((float)filledOunces / (float)requestedOunces) * 128 ;
+void statusBar(float filledOunces, float requestedOunces) {
+  int percent = (filledOunces / requestedOunces) * 128 ;
   display.drawRect(0, 32, 128, 32, WHITE) ;
   display.fillRect(0, 32, percent, 32, WHITE) ;
   display.display() ;
@@ -99,8 +110,17 @@ void filledMessage() {
   showMsg(50, 1, fillDate + " at " + fillTime) ;
 }
 void fillingMessage() {
-  showMsg(0, 2, "Pouring");
-  showMsg(16, 2, requestedCups + " Cups...");
+  showMsg(0, 2, "Pouring") ;
+  showMsg(16, 2, requestedCups + " Cups...") ;
+}
+void debugMessage() {
+  clearScreen() ;
+  showMsg(0, 1, "Flow Rate:" + String(flowRateOunces)) ;
+  showMsg(10, 1, "Requested Oz:" + String(requestedOunces)) ;
+  showMsg(20, 1, "Filled Oz:" + String(filledOunces)) ;
+  showMsg(30, 1, "Pulse Count:" + String(pulseCount)) ;
+  showMsg(40, 1, "Water Sensor:" + String(waterSensor)) ;
+  showMsg(50, 1, "DEBUG MODE ENABLED") ;
 }
 //flowsensor functions
 void pulseCounter()
@@ -108,21 +128,23 @@ void pulseCounter()
   pulseCount++ ;
 }
 void calculateFlow() {
-  flowRate = ((1000.0 / (millis() - timeOfLastFlowReading)) * pulseCount) / calibrationFactor;
-  timeOfLastFlowReading = millis();
-  flowMilliLitres = (flowRate / 60) * 1000 ;
-  totalMilliLitres += flowMilliLitres ;
-  filledOunces = totalMilliLitres * 0.033814 ;
+  flowRate = ((1000.0 / (millis() - lastFlowReadingTimestamp)) * pulseCount) / calibrationFactor ;
+  lastFlowReadingTimestamp = millis() ;
+  flowRateOunces = (flowRate / 60) * 1000 * 0.033814 ;
+  filledOunces += flowRateOunces ;
   pulseCount = 0 ;
 }
 //control flow functions
 void resetVariables() {
-  requestedOunces = 0 ;
+  requestedOunces = 0.01 ;
   filledOunces = 0 ;
   fill = false ;
   tankFull = false ;
 }
 //cloud functions (pascalcase)
+int Calibrate(String message) {
+  calibrationFactor = message.toFloat() ;
+}
 int Stop(String message) {
   digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
   resetVariables() ;
@@ -139,4 +161,12 @@ int FillWater(String message) {
 }
 int ManualFill(String message) {
   digitalWrite(SOLENOID, HIGH) ;     //Switch Solenoid ON
+}
+int ToggleDebugMode(String message) {
+  if (!debugMode) {
+    debugMode = true ;
+  }
+  else {
+    debugMode = false ;
+  }
 }
