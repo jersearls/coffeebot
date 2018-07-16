@@ -13,7 +13,7 @@ byte SENSOR_PIN       = 4 ;
 bool fill = false ;
 bool tankFull = false ;
 bool debugMode = false ;
-double calibrationFactor = 30 ;
+double calibrationFactor = 32.75 ;
 float flowRate ;
 float flowRateOunces;
 float filledOunces = 0 ;
@@ -44,11 +44,10 @@ void setup() {
 void loop() {
   waterSensor = smooth() ;
   if((millis() - lastFlowReadingTimestamp) > 1000) {
-    //waterSensor = analogRead(WATER_SENSOR) ;
     detachInterrupt(SENSOR_INTERRUPT) ;
     calculateFlow() ;
     attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING) ;
-    if (waterSensor > 350 && !tankFull && fill) {
+    if (waterSensor > 10 && !tankFull && fill) {
       digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
       tankFull = true ;
       requestedCups = "12" ; //max water reservoir capacity
@@ -85,9 +84,10 @@ void showMsg(int position, int font, String message) {
   display.display() ;
 }
 void statusBar(float filledOunces, float requestedOunces) {
-  int percent = (filledOunces / requestedOunces) * 128 ;
-  display.drawRect(0, 32, 128, 32, WHITE) ;
-  display.fillRect(0, 32, percent, 32, WHITE) ;
+  int pixels = (filledOunces / requestedOunces) * 128 ;
+  display.drawRect(0, 48, 128, 16, WHITE) ;
+  display.fillRect(1, 49, pixels, 14, WHITE) ;
+  display.fillRect(1, 49, pixels - 6, 14, BLACK) ;
   display.display() ;
 }
 void clearScreen() {
