@@ -1,124 +1,181 @@
+//initialize OLED
 #include "Adafruit_SSD1306.h"
 #define OLED_I2C_ADDRESS 0x3C
+//set pin positions
 #define OLED_RESET D4
 #define SOLENOID 3
 #define WATER_SENSOR A0
-Adafruit_SSD1306 display(OLED_RESET);
-
-// declare global variables
-volatile bool fill = false;
-volatile bool tankFull = false;
-int statusPercent;
-int cups;
-int waterSensor;
-
-//initialize
+Adafruit_SSD1306 display(OLED_RESET) ;
+// refactor without byte?
+byte SENSOR_INTERRUPT = 4 ;
+byte SENSOR_PIN       = 4 ;
+// declare variables
+bool fill = false ;
+bool tankFull = false ;
+bool debugMode = false ;
+double calibrationFactor = 32.75 ;
+float flowRate ;
+float flowRateOunces;
+float filledOunces = 0 ;
+double requestedOunces = 0 ;
+long lastFlowReadingTimestamp ;
+volatile int pulseCount ;
+int waterSensor ;
+String requestedCups ;
+// begin inital setup
 void setup() {
-  //Serial.begin(9600);
-  pinMode(SOLENOID, OUTPUT) ;         //Sets the solenoid pin as an output
-  Time.zone(-4);
-  display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
+  //Serial.begin(9600) ;
+  pinMode(SENSOR_PIN, INPUT) ;
+  pinMode(SOLENOID, OUTPUT) ;
+  digitalWrite(SENSOR_PIN, HIGH) ;
+  attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING) ;
+  Time.zone(-4) ;
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS) ;
   clearScreen();
   //cloud functions
-  Particle.function("Stop", Stop);
-  Particle.function("FillWater", FillWater);
-  Particle.function("ManualFill", ManualFill);
+  Particle.function("Calibrate", Calibrate) ;
+  Particle.function("Stop", Stop) ;
+  Particle.function("FillWater", FillWater) ;
+  Particle.function("ToggleDebugMode", ToggleDebugMode) ;
+  //cloud variables
+  Particle.variable("calibrationFactor", calibrationFactor) ;
+  Particle.variable("waterSensor", waterSensor) ;
 }
-
-//begin loop
 void loop() {
-  waterSensor = analogRead(WATER_SENSOR);
-  //Serial.println(waterSensor);
-  if (waterSensor > 400 && !tankFull && fill) {
-    digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-    tankFull = true;
-    cups = 12;    //max water reservoir capacity
-    clearScreen();
-    showMsg(0, 3, "ERROR:");
-    showMsg(30, 2, "Water Tank");
-    showMsg(48, 2, "is Full");
-    delay(3000);
-  }
-  else {
-    if (!tankFull && fill && statusPercent < 101 ) {
+  waterSensor = smooth() ;
+  if((millis() - lastFlowReadingTimestamp) > 1000) {
+    detachInterrupt(SENSOR_INTERRUPT) ;
+    calculateFlow() ;
+    attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING) ;
+    if (waterSensor > 10 && !tankFull && fill) {
+      digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
+      tankFull = true ;
+      requestedCups = "12" ; //max water reservoir capacity
+      stopMessage("Water Tank", "is Full") ;
+      Particle.publish("Water Sensor Activated", String(waterSensor)) ;
+    }
+    else if (!tankFull && fill && filledOunces < requestedOunces ) {
       digitalWrite(SOLENOID, HIGH) ;    //Switch Solenoid ON
-      showMsg(0, 2, "Pouring");
-      showMsg(16, 2, String(cups) + " Cups...");
-      statusBar(statusPercent);
-      statusPercent += 5 ;
-      if (cups == 4) {
-        delay(335);   //greater delay, more volume
+      Particle.publish("Water Sensor Reading", String(waterSensor)) ;
+      if (debugMode) {
+        debugMessage() ;
       }
-      else if (cups == 6) {
-        delay(620);
-      }
-      else if (cups == 8) {
-        delay(1000);
-      }
-      else if (cups == 10) {
-        delay(1300);
-      }
-      else if (cups == 12) {
-        delay(1655);
+      else {
+        fillingMessage() ;
+        statusBar(filledOunces, requestedOunces) ;
       }
     }
-    else if (tankFull || statusPercent >= 101) {
+    else if (tankFull || filledOunces >= requestedOunces) {
       digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-      clearScreen();
-      String fillDate = Time.format(Time.now(), "%m-%d-%y");
-      String fillTime = Time.format(Time.now(), "%I:%M %p");
-      showMsg(0, 2, "Filled");
-      showMsg(20, 2, String(cups) + " Cups");
-      showMsg(40, 1, "Last Filled on:");
-      showMsg(50, 1, fillDate + " at " + fillTime);
-      resetVariables();
+      if (requestedOunces > 0) {
+        filledMessage() ;
+      }
+      resetVariables() ;
     }
   }
-} // end loop
-
-// local functions camelcase
-void showMsg(int position, int font, String message) {
-  display.setTextSize(font);   // 1 = 8 pixel tall, 2 = 16 pixel tall...
-  display.setTextColor(WHITE);
-  display.setCursor(0, position);
-  display.println(message);
-  display.display();
 }
-void statusBar(int n) {
-  int percent = (n / 100.0) * 128;
-  display.drawRect(0, 32, 128, 32, WHITE);
-  display.fillRect(0, 32, percent, 32, WHITE);
-  display.display();
+//local functions (camelcase)
+//LCD functions
+void showMsg(int position, int font, String message) {
+  display.setTextSize(font) ;   // 1 = 8 pixel tall, 2 = 16 pixel tall...
+  display.setTextColor(WHITE) ;
+  display.setCursor(0, position) ;
+  display.println(message) ;
+  display.display() ;
+}
+void statusBar(float filledOunces, float requestedOunces) {
+  int pixels = (filledOunces / requestedOunces) * 128 ;
+  display.drawRect(0, 48, 128, 16, WHITE) ;
+  display.fillRect(1, 49, pixels, 14, WHITE) ;
+  display.fillRect(1, 49, pixels - 6, 14, BLACK) ;
+  display.display() ;
 }
 void clearScreen() {
   display.clearDisplay() ;
   display.display() ;
 }
-void resetVariables() {
-  cups = 0;
-  statusPercent = 0;
-  fill = false;
-  tankFull = false;
+void stopMessage(String line1, String line2) {
+  clearScreen() ;
+  showMsg(0, 3, "ERROR:") ;
+  showMsg(30, 2, line1) ;
+  showMsg(48, 2, line2) ;
+  delay(3000) ;
 }
-
-//cloud functions pascalcase
+void filledMessage() {
+  clearScreen() ;
+  String fillDate = Time.format(Time.now(), "%m-%d-%y") ;
+  String fillTime = Time.format(Time.now(), "%I:%M %p") ;
+  showMsg(0, 2, "Filled") ;
+  showMsg(20, 2, requestedCups + " Cups") ;
+  showMsg(40, 1, "Last Filled on:") ;
+  showMsg(50, 1, fillDate + " at " + fillTime) ;
+}
+void fillingMessage() {
+  showMsg(0, 2, "Pouring") ;
+  showMsg(16, 2, requestedCups + " Cups...") ;
+}
+void debugMessage() {
+  clearScreen() ;
+  showMsg(0, 1, "Flow Rate:" + String(flowRateOunces)) ;
+  showMsg(10, 1, "RequestOzs:" + String(requestedOunces)) ;
+  showMsg(20, 1, "Filled Ozs:" + String(filledOunces)) ;
+  showMsg(30, 1, "Pulse Count:" + String(pulseCount)) ;
+  showMsg(40, 1, "Water Sensor:" + String(waterSensor)) ;
+  showMsg(50, 1, "DEBUG MODE ENABLED") ;
+}
+//flow meter functions
+void pulseCounter()
+{
+  pulseCount++ ;
+}
+void calculateFlow() {
+  flowRate = ((1000.0 / (millis() - lastFlowReadingTimestamp)) * pulseCount) / calibrationFactor ;
+  lastFlowReadingTimestamp = millis() ;
+  flowRateOunces = (flowRate / 60.0) * 1000.0 * 0.033814 ;
+  filledOunces += flowRateOunces ;
+  pulseCount = 0 ;
+}
+//control-flow functions
+void resetVariables() {
+  requestedOunces = 0.0 ;
+  filledOunces = 0.0 ;
+  fill = false ;
+  tankFull = false ;
+}
+int smooth(){
+  int i;
+  int value = 0;
+  int numReadings = 10;
+  for (i = 0; i < numReadings; i++){
+    value = value + analogRead(WATER_SENSOR);
+    delay(1);
+  }
+  value = value / numReadings;
+  return value;
+}
+//cloud functions (pascalcase)
+int Calibrate(String message) {
+  calibrationFactor = message.toFloat() ;
+}
 int Stop(String message) {
   digitalWrite(SOLENOID, LOW) ;     //Switch Solenoid OFF
-  resetVariables();
-  clearScreen();
-  showMsg(0, 3, "ERROR:");
-  showMsg(30, 2, "Emergency");
-  showMsg(48, 2, "Stop!");
-  delay(5000);
-  clearScreen();
+  resetVariables() ;
+  stopMessage("Emergency", "Stop!") ;
+  clearScreen() ;
 }
 int FillWater(String message) {
   if (!fill) {
     clearScreen() ;
-    cups = message.toInt() ;
+    requestedCups = message ;
+    requestedOunces = message.toInt() * 5 ;
     fill = true ;
   }
 }
-int ManualFill(String message) {
-  digitalWrite(SOLENOID, HIGH) ;     //Switch Solenoid ON
+int ToggleDebugMode(String message) {
+  if (!debugMode) {
+    debugMode = true ;
+  }
+  else {
+    debugMode = false ;
+  }
 }
