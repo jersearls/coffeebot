@@ -13,7 +13,7 @@ byte SENSOR_PIN       = 4 ;
 bool fill = false ;
 bool tankFull = false ;
 bool debugMode = false ;
-double calibrationFactor = 32.75 ;
+double calibrationFactor = 32.25 ;
 float flowRate ;
 float flowRateOunces;
 float filledOunces = 0 ;
