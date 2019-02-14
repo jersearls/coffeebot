@@ -47,7 +47,7 @@ void loop() {
     detachInterrupt(SENSOR_INTERRUPT) ;
     calculateFlow() ;
     attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING) ;
-    if (waterSensor > 40 && !tankFull && fill) {
+    if (waterSensor > 800 && !tankFull && fill) {
       digitalWrite(SOLENOID, LOW) ; //Switch Solenoid OFF
       tankFull = true ;
       requestedCups = "12" ; //max water reservoir capacity
