@@ -11,7 +11,6 @@ byte SENSOR_INTERRUPT = 4;
 byte SENSOR_PIN = 4;
 // declare variables
 bool fill = false;
-bool tankFull = false;
 bool debugMode = false;
 double calibrationFactor = 32.25;
 float flowRate;
@@ -51,38 +50,38 @@ void loop()
     detachInterrupt(SENSOR_INTERRUPT);
     calculateFlow();
     attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING);
-    if (floatState == HIGH && !tankFull && fill)
+    if (fill)
     {
-      digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
-      tankFull = true;
-      requestedCups = "12"; //max water reservoir capacity
-      stopMessage("Water Tank", "is Full");
-    }
-    else if (!tankFull && fill && filledOunces < requestedOunces)
-    {
-      digitalWrite(SOLENOID, HIGH); //Switch Solenoid ON
-      if (debugMode)
+      if (floatState == HIGH)
       {
-        debugMessage();
+        stopFilling();
+        errorMessage("Tank is", "full");
       }
-      else
+      else if (floatState == LOW && filledOunces < requestedOunces)
       {
-        fillingMessage();
-        statusBar(filledOunces, requestedOunces);
+        digitalWrite(SOLENOID, HIGH); //Switch Solenoid ON
+        if (debugMode)
+        {
+          debugMessage();
+        }
+        else
+        {
+          fillingMessage();
+          statusBar(filledOunces, requestedOunces);
+        }
       }
-    }
-    else if (tankFull || filledOunces >= requestedOunces)
-    {
-      digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
-      if (requestedOunces > 0)
+      else if (filledOunces >= requestedOunces)
       {
         filledMessage();
+        stopFilling();
       }
-      resetVariables();
+    }
+    else
+    {
+      digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
     }
   }
 }
-//local functions (camelcase)
 //LCD functions
 void showMsg(int position, int font, String message)
 {
@@ -105,10 +104,10 @@ void clearScreen()
   display.clearDisplay();
   display.display();
 }
-void stopMessage(String line1, String line2)
+void errorMessage(String line1, String line2)
 {
   clearScreen();
-  showMsg(0, 3, "ERROR:");
+  showMsg(0, 3, "Error:");
   showMsg(30, 2, line1);
   showMsg(48, 2, line2);
   delay(3000);
@@ -135,7 +134,6 @@ void debugMessage()
   showMsg(10, 1, "RequestOzs:" + String(requestedOunces));
   showMsg(20, 1, "Filled Ozs:" + String(filledOunces));
   showMsg(30, 1, "Pulse Count:" + String(pulseCount));
-  showMsg(40, 1, "Float Switch:" + int(floatState));
   showMsg(50, 1, "DEBUG MODE ENABLED");
 }
 //flow meter functions
@@ -157,7 +155,11 @@ void resetVariables()
   requestedOunces = 0.0;
   filledOunces = 0.0;
   fill = false;
-  tankFull = false;
+}
+void stopFilling()
+{
+  digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
+  resetVariables();
 }
 //cloud functions (pascalcase)
 int Calibrate(String message)
@@ -166,10 +168,7 @@ int Calibrate(String message)
 }
 int Stop(String message)
 {
-  digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
-  resetVariables();
-  stopMessage("Emergency", "Stop!");
-  clearScreen();
+  stopFilling();
 }
 int FillWater(String message)
 {
