@@ -32,6 +32,7 @@ void setup()
   attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING);
   Time.zone(-4);
   display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
+  display.setRotation(2);
   clearScreen();
   //cloud functions
   Particle.function("Calibrate", Calibrate);
@@ -45,41 +46,38 @@ void setup()
 void loop()
 {
   floatState = digitalRead(FLOAT_SWITCH);
-  if ((millis() - lastFlowReadingTimestamp) > 1000)
+  if (floatState == HIGH)
+  {
+    stopFilling();
+    errorMessage("Tank is", "full");
+  }
+  else if (fill && (millis() - lastFlowReadingTimestamp) > 1000)
   {
     detachInterrupt(SENSOR_INTERRUPT);
     calculateFlow();
     attachInterrupt(SENSOR_INTERRUPT, pulseCounter, FALLING);
-    if (fill)
+    if (floatState == LOW && filledOunces < requestedOunces)
     {
-      if (floatState == HIGH)
+      digitalWrite(SOLENOID, HIGH);
+      if (debugMode)
       {
-        stopFilling();
-        errorMessage("Tank is", "full");
+        debugMessage();
       }
-      else if (floatState == LOW && filledOunces < requestedOunces)
+      else
       {
-        digitalWrite(SOLENOID, HIGH); //Switch Solenoid ON
-        if (debugMode)
-        {
-          debugMessage();
-        }
-        else
-        {
-          fillingMessage();
-          statusBar(filledOunces, requestedOunces);
-        }
-      }
-      else if (filledOunces >= requestedOunces)
-      {
-        filledMessage();
-        stopFilling();
+        fillingMessage();
+        statusBar(filledOunces, requestedOunces);
       }
     }
-    else
+    else if (filledOunces >= requestedOunces)
     {
-      digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
+      filledMessage();
+      stopFilling();
     }
+  }
+  else if (!fill)
+  {
+    digitalWrite(SOLENOID, LOW); //Switch Solenoid OFF
   }
 }
 //LCD functions
